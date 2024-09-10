@@ -75,7 +75,7 @@ const setupPasskey = async (
       timeout: 60000,
       authenticatorSelection: {
         residentKey: 'discouraged',
-        userVerification: 'discouraged',
+        userVerification: 'preferred',
       },
       supportedAlgorithmIDs: [-7, -257],
     });
@@ -219,7 +219,7 @@ const authenticationOptions = async (
         type: 'public-key',
         transports: device.transports,
       })),
-      userVerification:  'discouraged',
+      userVerification:  'preferred',
     };
 
     const authOptions = await generateAuthenticationOptions(opts);
