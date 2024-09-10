@@ -1,7 +1,7 @@
 // TODO: add imports
 import {NextFunction, Request, Response} from 'express';
 import CustomError from '../../classes/CustomError';
-import {User} from '@sharedTypes/DBTypes';
+import {User, UserWithNoPassword} from '@sharedTypes/DBTypes';
 import {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
@@ -9,7 +9,7 @@ import {
   RegistrationResponseJSON,
 } from '@simplewebauthn/types';
 import fetchData from '../../utils/fetchData';
-import {UserResponse} from '@sharedTypes/MessageTypes';
+import {LoginResponse, UserResponse} from '@sharedTypes/MessageTypes';
 import {
   generateAuthenticationOptions,
   GenerateAuthenticationOptionsOpts,
@@ -23,6 +23,7 @@ import {Challenge, PasskeyUserGet} from '../../types/PasskeyTypes';
 import challengeModel from '../models/challengeModel';
 import passkeyUserModel from '../models/passkeyUserModel';
 import authenticatorDeviceModel from '../models/authenticatorDeviceModel';
+import jwt from 'jsonwebtoken';
 
 // check environment variables
 if (
@@ -35,13 +36,7 @@ if (
   throw new Error('Environment variables not set');
 }
 
-const {
-  NODE_ENV,
-  RP_ID,
-  AUTH_URL,
-  // JWT_SECRET,
-  RP_NAME,
-} = process.env;
+const {NODE_ENV, RP_ID, AUTH_URL, JWT_SECRET, RP_NAME} = process.env;
 
 // Registration handler
 const setupPasskey = async (
@@ -71,7 +66,7 @@ const setupPasskey = async (
       return;
     }
 
-    // TODO: Generate registration options
+    // Generate registration options
     const regOptions = await generateRegistrationOptions({
       rpName: RP_NAME,
       rpID: RP_ID,
@@ -80,7 +75,7 @@ const setupPasskey = async (
       timeout: 60000,
       authenticatorSelection: {
         residentKey: 'discouraged',
-        userVerification: 'preferred',
+        userVerification: 'discouraged',
       },
       supportedAlgorithmIDs: [-7, -257],
     });
@@ -93,14 +88,14 @@ const setupPasskey = async (
 
     await new challengeModel(challenge).save();
 
-    // TODO: Add user to PasskeyUser collection
+    // Add user to PasskeyUser collection
     await new passkeyUserModel({
       email: userResponse.user.email,
       userId: userResponse.user.user_id,
       devices: [],
     }).save();
 
-    // TODO: Send response with email and options
+    //  Send response with email and options
     res.json({
       email: userResponse.user.email,
       options: regOptions,
@@ -154,7 +149,7 @@ const verifyPasskey = async (
     }
 
     const {credentialPublicKey, credentialID, counter} = registrationInfo;
-    // TODO: Check if device is already registered
+    // Check if device is already registered
     const existingDevice = await authenticatorDeviceModel.findOne({
       credentialID,
     });
@@ -164,7 +159,7 @@ const verifyPasskey = async (
       return;
     }
 
-    // TODO: Save new authenticator to AuthenticatorDevice collection
+    // Save new authenticator to AuthenticatorDevice collection
     const newDevice = new authenticatorDeviceModel({
       email: req.body.email,
       credentialPublicKey: Buffer.from(credentialPublicKey),
@@ -184,9 +179,9 @@ const verifyPasskey = async (
     user.devices.push(newDeviceResult._id);
     await user.save();
 
-    // TODO: Clear challenge from DB after successful registration
+    // Clear challenge from DB after successful registration
     await challengeModel.findOneAndDelete({email: req.body.email});
-    // TODO: Retrieve and send user details from AUTH API
+    // Retrieve and send user details from AUTH API
     // If valid, get the user from AUTH API
     const respose = await fetchData<UserResponse>(
       AUTH_URL + '/api/v1/users/' + user.userId,
@@ -224,7 +219,7 @@ const authenticationOptions = async (
         type: 'public-key',
         transports: device.transports,
       })),
-      userVerification: 'preferred',
+      userVerification: 'discouraged',
     };
 
     const authOptions = await generateAuthenticationOptions(opts);
@@ -249,7 +244,7 @@ const verifyAuthentication = async (
     {},
     {email: string; authResponse: AuthenticationResponseJSON}
   >,
-  res: Response,
+  res: Response<LoginResponse>,
   next: NextFunction,
 ) => {
   try {
@@ -274,6 +269,7 @@ const verifyAuthentication = async (
     }
     // Verify authentication response
     const opts: VerifyAuthenticationResponseOpts = {
+      expectedRPID: RP_ID,
       response: authResponse,
       expectedChallenge: expectedChallenge.challenge,
       expectedOrigin:
@@ -286,7 +282,6 @@ const verifyAuthentication = async (
         counter: user.devices[0].counter,
       },
       requireUserVerification: false,
-
     };
 
     const verification = await verifyAuthenticationResponse(opts);
@@ -300,9 +295,35 @@ const verifyAuthentication = async (
       });
     }
 
-    // TODO: Clear challenge from DB after successful authentication
+    // Clear challenge from DB after successful authentication
     await challengeModel.findOneAndDelete({email});
-    // TODO: Generate and send JWT token
+
+    // Generate and send JWT token
+    const userResponse = await fetchData<UserWithNoPassword>(
+      AUTH_URL + '/api/v1/users/' + user.userId,
+    );
+
+    if (!userResponse) {
+      next(new CustomError('User not found', 400));
+    }
+
+    console.log(userResponse);
+
+    const token = jwt.sign(
+      {
+        user_id: userResponse.user_id,
+        level_name: userResponse.level_name,
+      },
+      JWT_SECRET,
+    );
+
+    const message: LoginResponse = {
+      message: 'Login success',
+      token,
+      user: userResponse,
+    };
+
+    res.json(message);
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
   }
