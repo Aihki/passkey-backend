@@ -1,4 +1,4 @@
-// TODO: add imports
+// imports
 import {NextFunction, Request, Response} from 'express';
 import CustomError from '../../classes/CustomError';
 import {User, UserWithNoPassword} from '@sharedTypes/DBTypes';
@@ -80,7 +80,7 @@ const setupPasskey = async (
       supportedAlgorithmIDs: [-7, -257],
     });
 
-    // TODO: Save challenge to DB
+    // Save challenge to DB
     const challenge: Challenge = {
       email: userResponse.user.email,
       challenge: regOptions.challenge,
@@ -170,7 +170,7 @@ const verifyPasskey = async (
 
     const newDeviceResult = await newDevice.save();
 
-    // TODO: Update user devices array in DB
+    // Update user devices array in DB
     const user = await passkeyUserModel.findOne({email: req.body.email});
     if (!user) {
       next(new CustomError('User not found', 404));
@@ -219,7 +219,7 @@ const authenticationOptions = async (
         type: 'public-key',
         transports: device.transports,
       })),
-      userVerification: 'discouraged',
+      userVerification:  'discouraged',
     };
 
     const authOptions = await generateAuthenticationOptions(opts);
@@ -230,7 +230,7 @@ const authenticationOptions = async (
       challenge: authOptions.challenge,
     }).save();
 
-    // TODO: Send options in response
+    // Send options in response
     res.send(authOptions);
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
